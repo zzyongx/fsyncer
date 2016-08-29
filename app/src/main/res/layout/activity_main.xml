@@ -1,17 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:paddingLeft="@dimen/activity_horizontal_margin"
     android:paddingRight="@dimen/activity_horizontal_margin"
     android:paddingTop="@dimen/activity_vertical_margin"
     android:paddingBottom="@dimen/activity_vertical_margin"
-    tools:context="zzyongx.fsyncer.MainActivity">
+    android:orientation="vertical">
 
-    <TextView
-        android:text="Hello World!"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
-</RelativeLayout>
+  <TextView android:id="@+id/main_textView"
+            android:text="Hello World!"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+  <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+    <TextView android:id="@+id/main_endpointView"
+              android:text="please wait ..."
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content" />
+    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+      <Button android:id="@+id/main_acceptButton"
+              android:text="同意"
+              android:layout_width="wrap_content"
+              android:layout_height="match_parent"
+              android:layout_weight="1"/>
+      
+      <Button android:id="@+id/main_denyButton"
+              android:text="拒绝"
+              android:layout_width="wrap_content"
+              android:layout_height="match_parent"
+              android:layout_weight="1"/>              
+    </LinearLayout>
+  </LinearLayout>
+</LinearLayout>
