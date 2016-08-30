@@ -9,16 +9,22 @@ import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Enumeration;
-import java.util.concurrent.ThreadLocalRandom;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.support.v4.app.DialogFragment;
+import android.support.v4.app.FragmentManager;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Environment;
 import android.util.Log;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import android.content.Context;
@@ -26,7 +32,9 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity
+  implements HttpServer.Event {
+
   static final String TAG = "MainActivity";
   static final String LISTEN_PORT = "LISTEN_PORT";
 
@@ -47,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     endpointView = (TextView) findViewById(R.id.main_endpointView);
+    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
   }
 
   @Override
@@ -63,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
       types.add(Environment.DIRECTORY_DOCUMENTS);
-    };
+    }
 
     for (String type : types) {
       File file = Environment.getExternalStoragePublicDirectory(type);
@@ -83,6 +92,50 @@ public class MainActivity extends AppCompatActivity {
 
     if (port != -1) {
       savedInstanceState.putInt(LISTEN_PORT, port);
+    }
+  }
+
+  public void receiveResult(int requestCode, int resultCode, Intent data) {
+    onActivityResult(requestCode, resultCode, data);
+  }
+
+  @Override
+  protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+  
+  }
+
+  public HttpServer.UserTokenPool whenStart() {
+    HttpServer.UserTokenPool pool = new HttpServer.UserTokenPool();
+    return pool;
+  }
+
+  public void whenStop(HttpServer.UserTokenPool pool) {
+    for (HttpServer.UserToken u : pool.getAll()) {
+    }
+  }
+
+  public class Lock {
+    public int rc;
+  }
+
+  public boolean onNewSession() {
+    final Lock lock = new Lock();
+    
+    handler.post(new Runnable() {
+        @Override
+        public void run() {
+          FragmentManager fm = MainActivity.this.getSupportFragmentManager();
+          NewSessionDialogFragment dialog = new NewSessionDialogFragment(lock);
+          dialog.show(fm, "NewSession");
+        }
+      });
+
+    synchronized(lock) {
+      try {
+        lock.wait();
+      } catch (Exception e) {
+      }
+      return lock.rc == Activity.RESULT_OK;
     }
   }
 
@@ -110,6 +163,15 @@ public class MainActivity extends AppCompatActivity {
     }    
   }
 
+  static final int LISTEN_PORTS[] = {9127, 7084, 6281, 9091, 8879};
+  int getTryPortIndex() {
+    if (port == -1) return 0;
+    for (int i = 0; i < LISTEN_PORTS.length; ++i) {
+      if (port == LISTEN_PORTS[i]) return i;
+    }
+    return 0;
+  }
+
   void configHttp() {
     String ip = getWifiIp();
     if (ip == null) {
@@ -117,19 +179,15 @@ public class MainActivity extends AppCompatActivity {
       return;
     }
 
+    int startIndex = getTryPortIndex();
     boolean startOk = false;
+    for (int i = 0; !startOk && i < LISTEN_PORTS.length; i++) {
+      port = LISTEN_PORTS[(i + startIndex) % LISTEN_PORTS.length];
 
-    for (int i = 0; !startOk && i < 10 ; ++i) {
-      if (port == -1 || i != 0) {
-        port = ThreadLocalRandom.current().nextInt(6000, 9999);
-      }
       try {
-        http = new HttpServer(ip, port);
-        http.start();
+        http = new HttpServer(this, ip, port);
         startOk = true;
       } catch (BindException e) {
-        /* when this Exception arise, start OK, I don't know why */
-        startOk = true;
         Log.d(TAG, "BindException at endpoint " + ip + ":" + String.valueOf(port), e);
       } catch (Exception e) {
         Log.d(TAG, "Internal error", e);
@@ -177,5 +235,36 @@ public class MainActivity extends AppCompatActivity {
       return null;
     }
   }
-}
 
+  class NewSessionDialogFragment extends DialogFragment {
+    final Lock lock;
+    public NewSessionDialogFragment(final Lock lock) {
+      this.lock = lock;
+    }
+    
+    void sendResult(int rc) {
+      synchronized (lock) {
+        lock.rc = rc;
+        lock.notify();
+      }
+    }
+  
+    @Override
+    public Dialog onCreateDialog(Bundle savedInstanceState) {
+      AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+      builder.setMessage("新的同步请求？")
+        .setPositiveButton("接受", new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int id) {
+              sendResult(Activity.RESULT_OK);
+            }
+          })
+        .setNegativeButton("拒绝", new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface dialog, int id) {
+              sendResult(Activity.RESULT_CANCELED);
+            }
+          });
+        
+      return builder.create();
+    }
+  }
+}
