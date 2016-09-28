@@ -16,6 +16,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.FragmentManager;
 import android.support.v7.app.AppCompatActivity;
@@ -24,13 +25,24 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Environment;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
+
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
+
+import zzyongx.fsyncer.qr.CaptureActivity;
 
 public class MainActivity extends AppCompatActivity
   implements HttpServer.Event {
@@ -39,8 +51,11 @@ public class MainActivity extends AppCompatActivity
   static final String LISTEN_PORT = "LISTEN_PORT";
 
   TextView endpointView;
+  ImageView qrcodeView;
+  Button mixButton;
   
   HttpServer http;
+  String ip;
   int port = -1;
   Handler handler = new Handler();
   
@@ -56,6 +71,18 @@ public class MainActivity extends AppCompatActivity
 
     endpointView = (TextView) findViewById(R.id.main_endpointView);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+    qrcodeView = (ImageView) findViewById(R.id.main_qrcodeView);
+    
+    mixButton = (Button) findViewById(R.id.main_mixButton);
+    mixButton.setOnClickListener(new View.OnClickListener() {
+        @Override
+        public void onClick(View v) {
+          Intent i = new Intent(MainActivity.this, CaptureActivity.class);
+          startActivity(i);
+          
+        }
+      });
   }
 
   @Override
@@ -64,6 +91,7 @@ public class MainActivity extends AppCompatActivity
 
     startWelcomeActivity();
     configHttp();
+    resetQRImage();
 
     List<String> types = new ArrayList<>();
     types.add(Environment.DIRECTORY_DCIM);
@@ -95,13 +123,31 @@ public class MainActivity extends AppCompatActivity
     }
   }
 
-  public void receiveResult(int requestCode, int resultCode, Intent data) {
-    onActivityResult(requestCode, resultCode, data);
+  @Override
+  public boolean onCreateOptionsMenu(Menu menu) {
+    MenuInflater inflater = getMenuInflater();
+    inflater.inflate(R.menu.menu_main, menu);
+    return true;
+  }
+
+  @Override
+  public boolean onOptionsItemSelected(MenuItem item) {
+    // Handle item selection
+    switch (item.getItemId()) {
+    case R.id.menu_scan:
+      scan();
+      return true;
+    default:
+      return super.onOptionsItemSelected(item);
+    }
   }
 
   @Override
   protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-  
+    IntentResult scanResult = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
+    if (scanResult != null) {
+      Log.d(TAG, "QRcode  " + scanResult.getContents());
+    }
   }
 
   public HttpServer.UserTokenPool whenStart() {
@@ -173,7 +219,7 @@ public class MainActivity extends AppCompatActivity
   }
 
   void configHttp() {
-    String ip = getWifiIp();
+    ip = getWifiIp();
     if (ip == null) {
       endpointView.setText("this app only work in wifi network, check it");
       return;
@@ -235,6 +281,26 @@ public class MainActivity extends AppCompatActivity
       return null;
     }
   }
+
+  void resetQRImage() {
+    /*
+    Bitmap bitmap = new QRCode().encode("text");
+    if (bitmap == null) return;
+
+    qrcodeView.setImageBitmap(bitmap);
+    */
+  }
+
+  void wxScan() {
+    Uri uri = Uri.parse("weixin://dl/scan");
+    Intent i = new Intent(Intent.ACTION_VIEW, uri);
+    startActivityForResult(i, 0);
+  }
+
+  void scan() {
+//    IntentIntegrator integrator = new IntentIntegrator(this);
+//    integrator.initiateScan();
+  }      
 
   class NewSessionDialogFragment extends DialogFragment {
     final Lock lock;
