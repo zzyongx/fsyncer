@@ -1,29 +1,39 @@
 package zzyongx.fsyncer.qr;
 
+import android.graphics.Bitmap;
+import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.YuvImage;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 
 import com.google.zxing.BinaryBitmap;
+import com.google.zxing.PlanarYUVLuminanceSource;
+import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.qrcode.encoder.*;
 
+import java.io.ByteArrayOutputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Exchanger;
 
 import zzyongx.fsyncer.R;
 
+import static android.R.id.accessibilityActionContextClick;
 import static android.R.id.message;
 
 public class DecodeThread extends Thread {
   static final String TAG = DecodeThread.class.getSimpleName();
+  public static final String BARCODE_BITMAP = "barcode_bitmap";
 
   CountDownLatch handlerInitLatch;
   boolean running = true;
   Handler mainHandler;
   Handler handler;
-  Rect    rect;
+  Point   screenSize;
+  Rect    screenRect;
 
   class DecodeHandler extends Handler {
     @Override
@@ -31,13 +41,28 @@ public class DecodeThread extends Thread {
       if (!running) return;
       switch (message.what) {
         case R.id.decode:
-          String c = decode((byte[]) message.obj, message.arg1, message.arg2);
+          int width = message.arg1;
+          int height = message.arg2;
+
+          Rect rect = new Rect();
+          rect.left = screenRect.left * width / screenSize.x;
+          rect.top = screenRect.top * height / screenSize.y;
+          rect.right = screenRect.right * width / screenSize.x;
+          rect.bottom = screenRect.bottom * height / screenSize.y;
+
+          // rect = new Rect(0, 0, width, height);
+
+          Log.d(TAG, "decoding w:" + String.valueOf(width) + ", h:" + String.valueOf(height) + " rect: " + rect.toString());
+
+          PlanarYUVLuminanceSource source = QRCode.buildPlanarYUVLuminanceSource((byte[]) message.obj, width, height, rect);
+          String c = new QRCode().decode(new BinaryBitmap(new HybridBinarizer(source)));
           Message r;
           if (c == null) {
             r = Message.obtain(mainHandler, R.id.decodeFailed);
           } else {
             r = Message.obtain(mainHandler, R.id.decodeSuccess, c);
           }
+          r.setData(putQRImageToBundle(source));
           r.sendToTarget();
           break;
         case R.id.quit:
@@ -48,10 +73,11 @@ public class DecodeThread extends Thread {
     }
   }
 
-  public DecodeThread(Handler mainHandler, Rect finderRect) {
+  public DecodeThread(Handler mainHandler, Rect finderRect, Point screenSize) {
     handlerInitLatch = new CountDownLatch(1);
     this.mainHandler = mainHandler;
-    this.rect = finderRect;
+    this.screenRect = finderRect;
+    this.screenSize = screenSize;
   }
 
   public Handler getHandler() {
@@ -70,10 +96,16 @@ public class DecodeThread extends Thread {
     Looper.loop();
   }
 
-  private String decode(byte[] data, int width, int height) {
-    Log.d(TAG, "decoding");
+  private Bundle putQRImageToBundle(PlanarYUVLuminanceSource source) {
+    int[] pixels = source.renderThumbnail();
+    int width = source.getThumbnailWidth();
+    int height = source.getThumbnailHeight();
+    Bitmap bitmap = Bitmap.createBitmap(pixels, 0, width, width, height, Bitmap.Config.ARGB_8888);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 50, out);
 
-    BinaryBitmap binaryBitmap = QRCode.buildBinaryBitmap(data, width, height, rect);
-    return new QRCode().decode(binaryBitmap);
+    Bundle bundle = new Bundle();
+    bundle.putByteArray(DecodeThread.BARCODE_BITMAP, out.toByteArray());
+    return bundle;
   }
 }

@@ -12,10 +12,10 @@ import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.PlanarYUVLuminanceSource;
+import com.google.zxing.ReaderException;
 import com.google.zxing.Result;
 import com.google.zxing.WriterException;
 import com.google.zxing.common.BitMatrix;
-import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.qrcode.QRCodeReader;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
@@ -59,23 +59,29 @@ public class QRCode {
       return null;
     }
 
-    int[] pixels = new int[p.width * p.height];
-    for (int y = 0; y < p.height; y++) {
-      int offset = y * p.width;
-      for (int x = 0; x < p.width; x++) {
+    return bitMatrixToBitmap(matrix);
+  }
+
+  public static PlanarYUVLuminanceSource buildPlanarYUVLuminanceSource(byte[] data, int width, int height, Rect rect) {
+    return new PlanarYUVLuminanceSource(
+            data, width, height, rect.left, rect.top, rect.width(), rect.height(), false);
+  }
+
+  public static Bitmap bitMatrixToBitmap(BitMatrix matrix) {
+    int width = matrix.getWidth();
+    int height = matrix.getHeight();
+
+    int[] pixels = new int[width * height];
+    for (int y = 0; y < height; ++y) {
+      int offset = y * width;
+      for (int x = 0; x < width; ++x) {
         pixels[offset + x] = matrix.get(x, y) ? BLACK : WHITE;
       }
     }
 
-    Bitmap bitmap = Bitmap.createBitmap(p.width, p.height, Bitmap.Config.ARGB_8888);
-    bitmap.setPixels(pixels, 0, p.width, 0, 0, p.width, p.height);
+    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+    bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
     return bitmap;
-  }
-
-  public static BinaryBitmap buildBinaryBitmap(byte[] data, int width, int height, Rect rect) {
-    PlanarYUVLuminanceSource source = new PlanarYUVLuminanceSource(
-            data, width, height, rect.left, rect.top, rect.width(), rect.height(), false);
-    return source == null ? null : new BinaryBitmap(new HybridBinarizer(source));
   }
 
   public String decode(BinaryBitmap bitmap) {
@@ -85,8 +91,10 @@ public class QRCode {
     try {
       Result result = new QRCodeReader().decode(bitmap, hints);
       return result == null ? null : result.getText();
-    } catch (Exception e) {
+    } catch (ReaderException re) {
       return null;
+    } catch (Exception e) {
+      throw new RuntimeException(e);
     }
   }
 }

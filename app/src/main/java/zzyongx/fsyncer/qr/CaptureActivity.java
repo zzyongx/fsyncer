@@ -1,8 +1,11 @@
 package zzyongx.fsyncer.qr;
 
-import java.io.IOException;
+import java.io.OutputStream;
 
 import android.content.Context;
+import android.content.pm.ActivityInfo;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.Message;
@@ -11,16 +14,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import android.view.Display;
-import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 import zzyongx.fsyncer.R;
-
-import static java.security.AccessController.getContext;
 
 public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.Callback {
   static final String TAG = CaptureActivity.class.getSimpleName();
@@ -35,10 +37,21 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
   Handler handler = new Handler() {
     @Override
     public void handleMessage(Message message) {
+      Bundle bundle = message.getData();
+      byte[] compressedBitmap = bundle.getByteArray(DecodeThread.BARCODE_BITMAP);
+      Bitmap barcode = BitmapFactory.decodeByteArray(compressedBitmap, 0, compressedBitmap.length, null);
+      // Mutable copy:
+      barcode = barcode.copy(Bitmap.Config.ARGB_8888, true);
+
+      ImageView barcodeImageView = (ImageView) findViewById(R.id.barcode_image_view);
+      barcodeImageView.setImageBitmap(barcode);
+
       switch (message.what) {
         case R.id.decodeSuccess:
           String text = (String) message.obj;
           Log.d(TAG, "receive decode result: " + text);
+          TextView textView = (TextView) findViewById(R.id.capture_barcodeTextView);
+          textView.setText(text);
           break;
         case R.id.decodeFailed:
           Log.d(TAG, "receve decode result failed");
@@ -57,6 +70,7 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
 
     Window window = getWindow();
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
     
     setContentView(R.layout.activity_capture);
 
@@ -69,7 +83,7 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
   protected void onResume() {
     super.onResume();
 
-    decodeThread = new DecodeThread(handler, finderRect);
+    decodeThread = new DecodeThread(handler, finderRect, getScreenSize());
     decodeThread.start();
     decodeHandler = decodeThread.getHandler();
 
@@ -117,12 +131,7 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
   public Rect getFinderRect() {
     if (finderRect != null) return finderRect;
 
-    WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-    Display display = wm.getDefaultDisplay();
-
-    Point screenResolution = new Point();
-    display.getSize(screenResolution);
-
+    Point screenResolution = getScreenSize();
     Log.d(TAG, "screen resolution " + screenResolution.toString());
 
     int width = screenResolution.x / 2;
@@ -132,6 +141,16 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
 
     finderRect = new Rect(left, top, left + width, top + height);
     return finderRect;
+  }
+
+  public Point getScreenSize() {
+    WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+    Display display = wm.getDefaultDisplay();
+
+    Point screenResolution = new Point();
+    display.getSize(screenResolution);
+
+    return screenResolution;
   }
 
   void initCamera(SurfaceHolder holder) {
