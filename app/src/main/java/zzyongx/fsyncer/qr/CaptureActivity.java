@@ -1,8 +1,7 @@
 package zzyongx.fsyncer.qr;
 
-import java.io.OutputStream;
-
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -26,42 +25,63 @@ import zzyongx.fsyncer.R;
 
 public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.Callback {
   static final String TAG = CaptureActivity.class.getSimpleName();
+  public static final String QRCODE = "QRCODE";
 
-  Rect           finderRect;
+  Rect finderRect;
   ViewFinderView viewFinderView;
-  SurfaceView    surfaceView;
+  SurfaceView surfaceView;
 
   CameraManager cameraManager;
   boolean hasSurface = false;
 
-  Handler handler = new Handler() {
+  static class MainHandler extends Handler {
+    private CaptureActivity outer;
+
+    MainHandler(CaptureActivity outer) {
+      this.outer = outer;
+    }
+
     @Override
     public void handleMessage(Message message) {
       Bundle bundle = message.getData();
       byte[] compressedBitmap = bundle.getByteArray(DecodeThread.BARCODE_BITMAP);
+      assert compressedBitmap != null;
       Bitmap barcode = BitmapFactory.decodeByteArray(compressedBitmap, 0, compressedBitmap.length, null);
       // Mutable copy:
       barcode = barcode.copy(Bitmap.Config.ARGB_8888, true);
 
-      ImageView barcodeImageView = (ImageView) findViewById(R.id.barcode_image_view);
+      ImageView barcodeImageView = (ImageView) outer.findViewById(R.id.barcode_image_view);
+      assert barcodeImageView != null;
       barcodeImageView.setImageBitmap(barcode);
 
       switch (message.what) {
         case R.id.decodeSuccess:
           String text = (String) message.obj;
           Log.d(TAG, "receive decode result: " + text);
-          TextView textView = (TextView) findViewById(R.id.capture_barcodeTextView);
+          TextView textView = (TextView) outer.findViewById(R.id.capture_barcodeTextView);
+          assert textView != null;
           textView.setText(text);
+          Message r = Message.obtain(outer.decodeHandler, R.id.quit);
+          r.sendToTarget();
+
+          Intent i = outer.getIntent();
+          if (i != null) {
+            Intent intent = new Intent();
+            intent.putExtra(CaptureActivity.QRCODE, text);
+            outer.setResult(CaptureActivity.RESULT_OK, intent);
+            outer.finish();
+          }
           break;
         case R.id.decodeFailed:
           Log.d(TAG, "receve decode result failed");
-          cameraManager.oneSnapshot(decodeHandler);
+          outer.cameraManager.oneSnapshot();
           break;
       }
     }
-  };
+  }
 
-  Handler      decodeHandler;
+  Handler handler;
+  Handler decodeHandler;
   DecodeThread decodeThread;
 
   @Override
@@ -71,25 +91,27 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
     Window window = getWindow();
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-    
+
     setContentView(R.layout.activity_capture);
 
     viewFinderView = (ViewFinderView) findViewById(R.id.capture_viewFinderView);
     viewFinderView.setFinderRect(getFinderRect());
     surfaceView = (SurfaceView) findViewById(R.id.capture_preview);
+
+    handler = new MainHandler(this);
+
+    decodeThread = new DecodeThread(handler);
+    decodeThread.start();
+    decodeHandler = decodeThread.getHandler();
+
+    cameraManager = new CameraManager(this);
+    viewFinderView.setVisibility(View.VISIBLE);
   }
 
   @Override
   protected void onResume() {
     super.onResume();
 
-    decodeThread = new DecodeThread(handler, finderRect, getScreenSize());
-    decodeThread.start();
-    decodeHandler = decodeThread.getHandler();
-
-    cameraManager = new CameraManager(this);
-    viewFinderView.setVisibility(View.VISIBLE);
-    
     SurfaceHolder holder = surfaceView.getHolder();
     holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
 
@@ -147,10 +169,10 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
     WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
     Display display = wm.getDefaultDisplay();
 
-    Point screenResolution = new Point();
-    display.getSize(screenResolution);
+    int w = display.getWidth();
+    int h = display.getHeight();
 
-    return screenResolution;
+    return new Point(w, h);
   }
 
   void initCamera(SurfaceHolder holder) {

@@ -14,6 +14,8 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.Paint;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -43,10 +45,12 @@ import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
 
 import zzyongx.fsyncer.qr.CaptureActivity;
+import zzyongx.fsyncer.qr.QRCode;
 
 public class MainActivity extends AppCompatActivity
   implements HttpServer.Event {
 
+  private static final int QRCODE = 100;
   static final String TAG = "MainActivity";
   static final String LISTEN_PORT = "LISTEN_PORT";
 
@@ -144,9 +148,11 @@ public class MainActivity extends AppCompatActivity
 
   @Override
   protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-    IntentResult scanResult = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
-    if (scanResult != null) {
-      Log.d(TAG, "QRcode  " + scanResult.getContents());
+    if (requestCode == QRCODE) {
+      if (data == null) return;
+
+      String code = data.getStringExtra(CaptureActivity.QRCODE);
+      Log.d(TAG, "QRCODE:" + code);
     }
   }
 
@@ -283,12 +289,12 @@ public class MainActivity extends AppCompatActivity
   }
 
   void resetQRImage() {
-    /*
-    Bitmap bitmap = new QRCode().encode("text");
-    if (bitmap == null) return;
+    if (Build.VERSION.SDK_INT > Build.VERSION_CODES.FROYO) {
+      Bitmap bitmap = new QRCode().encode("text");
+      if (bitmap == null) return;
 
-    qrcodeView.setImageBitmap(bitmap);
-    */
+      qrcodeView.setImageBitmap(bitmap);
+    }
   }
 
   void wxScan() {
@@ -298,8 +304,8 @@ public class MainActivity extends AppCompatActivity
   }
 
   void scan() {
-//    IntentIntegrator integrator = new IntentIntegrator(this);
-//    integrator.initiateScan();
+    Intent i = new Intent(this, CaptureActivity.class);
+    startActivityForResult(i, QRCODE);
   }      
 
   class NewSessionDialogFragment extends DialogFragment {

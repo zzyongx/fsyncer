@@ -20,6 +20,9 @@ android {
       debuggable true
     }
   }
+  lintOptions {
+    disable 'deprecation'
+  }
 }
 
 dependencies {
