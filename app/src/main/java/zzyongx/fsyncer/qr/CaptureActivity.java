@@ -43,16 +43,19 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
 
     @Override
     public void handleMessage(Message message) {
-      Bundle bundle = message.getData();
-      byte[] compressedBitmap = bundle.getByteArray(DecodeThread.BARCODE_BITMAP);
-      assert compressedBitmap != null;
-      Bitmap barcode = BitmapFactory.decodeByteArray(compressedBitmap, 0, compressedBitmap.length, null);
-      // Mutable copy:
-      barcode = barcode.copy(Bitmap.Config.ARGB_8888, true);
+      Intent i = outer.getIntent();
+      if (i == null) {
+        Bundle bundle = message.getData();
+        byte[] compressedBitmap = bundle.getByteArray(DecodeThread.BARCODE_BITMAP);
+        assert compressedBitmap != null;
+        Bitmap barcode = BitmapFactory.decodeByteArray(compressedBitmap, 0, compressedBitmap.length, null);
+        // Mutable copy:
+        barcode = barcode.copy(Bitmap.Config.ARGB_8888, true);
 
-      ImageView barcodeImageView = (ImageView) outer.findViewById(R.id.barcode_image_view);
-      assert barcodeImageView != null;
-      barcodeImageView.setImageBitmap(barcode);
+        ImageView barcodeImageView = (ImageView) outer.findViewById(R.id.barcode_image_view);
+        assert barcodeImageView != null;
+        barcodeImageView.setImageBitmap(barcode);
+      }
 
       switch (message.what) {
         case R.id.decodeSuccess:
@@ -64,7 +67,6 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
           Message r = Message.obtain(outer.decodeHandler, R.id.quit);
           r.sendToTarget();
 
-          Intent i = outer.getIntent();
           if (i != null) {
             Intent intent = new Intent();
             intent.putExtra(CaptureActivity.QRCODE, text);
@@ -124,10 +126,10 @@ public class CaptureActivity extends AppCompatActivity implements SurfaceHolder.
 
   @Override
   protected void onPause() {
-    cameraManager.closeDriver();
     if (!hasSurface) {
       surfaceView.getHolder().removeCallback(this);
     }
+    cameraManager.closeDriver();
     super.onPause();
   }
 

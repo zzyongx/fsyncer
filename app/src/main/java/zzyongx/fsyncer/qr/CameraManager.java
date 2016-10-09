@@ -150,6 +150,8 @@ final class CameraManager {
 
   void closeDriver() {
     if (camera != null) {
+      camera.stopPreview();
+      camera.setOneShotPreviewCallback(null);
       camera.release();
       camera = null;
     }

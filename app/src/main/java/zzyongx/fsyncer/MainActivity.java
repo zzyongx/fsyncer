@@ -9,13 +9,13 @@ import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Enumeration;
+
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.Paint;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -34,6 +34,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import android.content.Context;
@@ -41,14 +42,11 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
 
-import com.google.zxing.integration.android.IntentIntegrator;
-import com.google.zxing.integration.android.IntentResult;
-
 import zzyongx.fsyncer.qr.CaptureActivity;
 import zzyongx.fsyncer.qr.QRCode;
 
 public class MainActivity extends AppCompatActivity
-  implements HttpServer.Event {
+        implements HttpServer.Event {
 
   private static final int QRCODE = 100;
   static final String TAG = "MainActivity";
@@ -57,12 +55,12 @@ public class MainActivity extends AppCompatActivity
   TextView endpointView;
   ImageView qrcodeView;
   Button mixButton;
-  
+
   HttpServer http;
   String ip;
   int port = -1;
   Handler handler = new Handler();
-  
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -77,16 +75,20 @@ public class MainActivity extends AppCompatActivity
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
     qrcodeView = (ImageView) findViewById(R.id.main_qrcodeView);
-    
+
     mixButton = (Button) findViewById(R.id.main_mixButton);
     mixButton.setOnClickListener(new View.OnClickListener() {
-        @Override
-        public void onClick(View v) {
-          Intent i = new Intent(MainActivity.this, CaptureActivity.class);
-          startActivity(i);
-          
-        }
-      });
+      @Override
+      public void onClick(View v) {
+        Intent i = new Intent(MainActivity.this, CaptureActivity.class);
+        startActivity(i);
+      }
+    });
+
+    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.FROYO) {
+      LinearLayout layout = (LinearLayout) findViewById(R.id.main_qrcodeLayout);
+      layout.setVisibility(LinearLayout.GONE);
+    }
   }
 
   @Override
@@ -138,11 +140,11 @@ public class MainActivity extends AppCompatActivity
   public boolean onOptionsItemSelected(MenuItem item) {
     // Handle item selection
     switch (item.getItemId()) {
-    case R.id.menu_scan:
-      scan();
-      return true;
-    default:
-      return super.onOptionsItemSelected(item);
+      case R.id.menu_scan:
+        scan();
+        return true;
+      default:
+        return super.onOptionsItemSelected(item);
     }
   }
 
@@ -156,36 +158,40 @@ public class MainActivity extends AppCompatActivity
     }
   }
 
+  @Override
   public HttpServer.UserTokenPool whenStart() {
     HttpServer.UserTokenPool pool = new HttpServer.UserTokenPool();
     return pool;
   }
 
+  @Override
   public void whenStop(HttpServer.UserTokenPool pool) {
     for (HttpServer.UserToken u : pool.getAll()) {
     }
   }
 
-  public class Lock {
-    public int rc;
+  class Lock {
+    int rc;
   }
 
+  @Override
   public boolean onNewSession() {
     final Lock lock = new Lock();
-    
-    handler.post(new Runnable() {
-        @Override
-        public void run() {
-          FragmentManager fm = MainActivity.this.getSupportFragmentManager();
-          NewSessionDialogFragment dialog = new NewSessionDialogFragment(lock);
-          dialog.show(fm, "NewSession");
-        }
-      });
 
-    synchronized(lock) {
+    handler.post(new Runnable() {
+      @Override
+      public void run() {
+        FragmentManager fm = MainActivity.this.getSupportFragmentManager();
+        NewSessionDialogFragment dialog = new NewSessionDialogFragment(lock);
+        dialog.show(fm, "NewSession");
+      }
+    });
+
+    synchronized (lock) {
       try {
         lock.wait();
       } catch (Exception e) {
+        throw new RuntimeException(e);
       }
       return lock.rc == Activity.RESULT_OK;
     }
@@ -202,20 +208,22 @@ public class MainActivity extends AppCompatActivity
 
       if (oldVersion != null) Log.d(TAG, "oldVersion " + oldVersion);
       Log.d(TAG, "version  " + version);
-      
+
       if (oldVersion == null || !oldVersion.equals(version)) {
         Log.d(TAG, "app first run or app upgrade");
-        
+
         Intent i = new Intent(this, WelcomeActivity.class);
         startActivity(i);
-        
+
         sharedPref.edit().putString("APP_VERSION", version).commit();
       }
     } catch (PackageManager.NameNotFoundException e) {
-    }    
+      // do nothing
+    }
   }
 
   static final int LISTEN_PORTS[] = {9127, 7084, 6281, 9091, 8879};
+
   int getTryPortIndex() {
     if (port == -1) return 0;
     for (int i = 0; i < LISTEN_PORTS.length; ++i) {
@@ -227,7 +235,7 @@ public class MainActivity extends AppCompatActivity
   void configHttp() {
     ip = getWifiIp();
     if (ip == null) {
-      endpointView.setText("this app only work in wifi network, check it");
+      endpointView.setText(R.string.no_wifi_found);
       return;
     }
 
@@ -257,20 +265,20 @@ public class MainActivity extends AppCompatActivity
   String getLocalIp() {
     try {
       for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces();
-           en.hasMoreElements();) {
+           en.hasMoreElements(); ) {
         NetworkInterface intf = en.nextElement();
         for (Enumeration<InetAddress> enumIpAddr = intf.getInetAddresses();
-             enumIpAddr.hasMoreElements();) {
+             enumIpAddr.hasMoreElements(); ) {
           InetAddress inetAddress = enumIpAddr.nextElement();
           if (!inetAddress.isLoopbackAddress() && inetAddress instanceof Inet4Address) {
-            return inetAddress.getHostAddress().toString();
+            return inetAddress.getHostAddress();
           }
         }
       }
     } catch (SocketException ex) {
       Log.e(TAG, "Socket exception in getLocalIp() " + ex.toString());
     }
-    
+
     return null;
   }
 
@@ -306,36 +314,37 @@ public class MainActivity extends AppCompatActivity
   void scan() {
     Intent i = new Intent(this, CaptureActivity.class);
     startActivityForResult(i, QRCODE);
-  }      
+  }
 
   class NewSessionDialogFragment extends DialogFragment {
     final Lock lock;
+
     public NewSessionDialogFragment(final Lock lock) {
       this.lock = lock;
     }
-    
+
     void sendResult(int rc) {
       synchronized (lock) {
         lock.rc = rc;
         lock.notify();
       }
     }
-  
+
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
       AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
       builder.setMessage("新的同步请求？")
-        .setPositiveButton("接受", new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dialog, int id) {
-              sendResult(Activity.RESULT_OK);
-            }
-          })
-        .setNegativeButton("拒绝", new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dialog, int id) {
-              sendResult(Activity.RESULT_CANCELED);
-            }
-          });
-        
+              .setPositiveButton("接受", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int id) {
+                  sendResult(Activity.RESULT_OK);
+                }
+              })
+              .setNegativeButton("拒绝", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int id) {
+                  sendResult(Activity.RESULT_CANCELED);
+                }
+              });
+
       return builder.create();
     }
   }

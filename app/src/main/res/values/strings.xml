@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Fsyncer</string>
+    <string name="no_wifi_found">this app only work in wifi network, check it</string>
 </resources>

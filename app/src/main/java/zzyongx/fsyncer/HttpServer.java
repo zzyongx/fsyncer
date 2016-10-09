@@ -60,9 +60,9 @@ public class HttpServer extends NanoHTTPD {
   }
 
   public interface Event {
-    public UserTokenPool whenStart();
-    public void whenStop(UserTokenPool pool);
-    public boolean onNewSession();
+    UserTokenPool whenStart();
+    void whenStop(UserTokenPool pool);
+    boolean onNewSession();
   }
   
   public HttpServer(Event event, String ip, int port) throws IOException {
