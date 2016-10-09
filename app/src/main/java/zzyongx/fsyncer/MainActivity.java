@@ -1,14 +1,23 @@
 package zzyongx.fsyncer;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.BindException;
 import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Enumeration;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -19,6 +28,7 @@ import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
+import android.support.annotation.NonNull;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.FragmentManager;
 import android.support.v7.app.AppCompatActivity;
@@ -41,6 +51,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
+import android.widget.Toast;
 
 import zzyongx.fsyncer.qr.CaptureActivity;
 import zzyongx.fsyncer.qr.QRCode;
@@ -49,12 +60,24 @@ public class MainActivity extends AppCompatActivity
         implements HttpServer.Event {
 
   private static final int QRCODE = 100;
-  static final String TAG = "MainActivity";
+  static final String TAG = MainActivity.class.getSimpleName();
   static final String LISTEN_PORT = "LISTEN_PORT";
+  static final String TOKEN_POOL = "tokenpool.txt";
 
   TextView endpointView;
   ImageView qrcodeView;
+  Bitmap    qrcodeBitmap;
   Button mixButton;
+
+  class SessionLock extends CountDownLatch {
+    SessionLock() {
+      super(1);
+      rc = Activity.RESULT_CANCELED;
+    }
+    int rc;
+  }
+
+  Map<String, SessionLock> sessionLocks = new HashMap<>();
 
   HttpServer http;
   String ip;
@@ -97,7 +120,10 @@ public class MainActivity extends AppCompatActivity
 
     startWelcomeActivity();
     configHttp();
-    resetQRImage();
+    if (port > 0) {
+      String endpoint = endpointView.getText().toString();
+      resetQRImage(endpoint + "?" + http.prefetchToken());
+    }
 
     List<String> types = new ArrayList<>();
     types.add(Environment.DIRECTORY_DCIM);
@@ -154,6 +180,7 @@ public class MainActivity extends AppCompatActivity
       if (data == null) return;
 
       String code = data.getStringExtra(CaptureActivity.QRCODE);
+      Toast.makeText(this, code, Toast.LENGTH_SHORT).show();
       Log.d(TAG, "QRCODE:" + code);
     }
   }
@@ -161,40 +188,73 @@ public class MainActivity extends AppCompatActivity
   @Override
   public HttpServer.UserTokenPool whenStart() {
     HttpServer.UserTokenPool pool = new HttpServer.UserTokenPool();
+    try {
+      InputStream in = openFileInput(TOKEN_POOL);
+      try {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+        String line;
+        while ((line = reader.readLine()) != null) {
+          // pool.add(HttpServer.UserToken.fromString(line));
+        }
+      } finally {
+        in.close();
+      }
+    } catch (FileNotFoundException e) {
+      // do nothing
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+
     return pool;
   }
 
   @Override
   public void whenStop(HttpServer.UserTokenPool pool) {
-    for (HttpServer.UserToken u : pool.getAll()) {
+    try {
+      byte[] lf = new byte[] {'\n'};
+      OutputStream out = openFileOutput(TOKEN_POOL, Context.MODE_PRIVATE);
+      try {
+        for (HttpServer.UserToken u : pool.getAll()) {
+          out.write(u.toString().getBytes());
+          out.write(lf);
+        }
+      } finally {
+        out.close();
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
     }
   }
 
-  class Lock {
-    int rc;
-  }
-
   @Override
-  public boolean onNewSession() {
-    final Lock lock = new Lock();
+  public boolean onNewSession(final String source) {
+    final SessionLock lock = new SessionLock();
 
     handler.post(new Runnable() {
       @Override
       public void run() {
         FragmentManager fm = MainActivity.this.getSupportFragmentManager();
-        NewSessionDialogFragment dialog = new NewSessionDialogFragment(lock);
+        NewSessionDialogFragment dialog = NewSessionDialogFragment.newInstance(source);
         dialog.show(fm, "NewSession");
       }
     });
 
-    synchronized (lock) {
-      try {
-        lock.wait();
-      } catch (Exception e) {
-        throw new RuntimeException(e);
-      }
-      return lock.rc == Activity.RESULT_OK;
+    sessionLocks.put(source, lock);
+
+    try {
+      lock.await();
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
     }
+
+    sessionLocks.remove(source);
+    return lock.rc == Activity.RESULT_OK;
+  }
+
+  private void onNewSessionResult(String source, int rc) {
+    SessionLock lock = sessionLocks.get(source);
+    lock.rc = rc;
+    lock.countDown();
   }
 
   void startWelcomeActivity() {
@@ -249,8 +309,8 @@ public class MainActivity extends AppCompatActivity
         startOk = true;
       } catch (BindException e) {
         Log.d(TAG, "BindException at endpoint " + ip + ":" + String.valueOf(port), e);
-      } catch (Exception e) {
-        Log.d(TAG, "Internal error", e);
+      } catch (IOException e) {
+        Log.d(TAG, "ioexception", e);
       }
     }
 
@@ -296,15 +356,21 @@ public class MainActivity extends AppCompatActivity
     }
   }
 
-  void resetQRImage() {
+  void resetQRImage(String url) {
     if (Build.VERSION.SDK_INT > Build.VERSION_CODES.FROYO) {
-      Bitmap bitmap = new QRCode().encode("text");
+      Bitmap bitmap = new QRCode().encode(url);
       if (bitmap == null) return;
+
+      if (qrcodeBitmap != null) {
+        qrcodeBitmap.recycle();
+      }
+      qrcodeBitmap = bitmap;
 
       qrcodeView.setImageBitmap(bitmap);
     }
   }
 
+  @SuppressWarnings("unused")
   void wxScan() {
     Uri uri = Uri.parse("weixin://dl/scan");
     Intent i = new Intent(Intent.ACTION_VIEW, uri);
@@ -316,32 +382,34 @@ public class MainActivity extends AppCompatActivity
     startActivityForResult(i, QRCODE);
   }
 
-  class NewSessionDialogFragment extends DialogFragment {
-    final Lock lock;
+  public static class NewSessionDialogFragment extends DialogFragment {
+    private static final String SOURCE = "source";
 
-    public NewSessionDialogFragment(final Lock lock) {
-      this.lock = lock;
-    }
+    static NewSessionDialogFragment newInstance(String source) {
+      NewSessionDialogFragment dialog = new NewSessionDialogFragment();
 
-    void sendResult(int rc) {
-      synchronized (lock) {
-        lock.rc = rc;
-        lock.notify();
-      }
+      Bundle args = new Bundle();
+      args.putString(SOURCE, source);
+      dialog.setArguments(args);
+
+      return dialog;
     }
 
     @Override
+    @NonNull
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-      AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-      builder.setMessage("新的同步请求？")
-              .setPositiveButton("接受", new DialogInterface.OnClickListener() {
+      final String source = getArguments().getString(SOURCE);
+
+      AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+      builder.setMessage(getString(R.string.new_fsync_request, source))
+              .setPositiveButton(R.string.request_accept, new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface dialog, int id) {
-                  sendResult(Activity.RESULT_OK);
+                  ((MainActivity) getActivity()).onNewSessionResult(source, Activity.RESULT_OK);
                 }
               })
-              .setNegativeButton("拒绝", new DialogInterface.OnClickListener() {
+              .setNegativeButton(R.string.request_deny, new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface dialog, int id) {
-                  sendResult(Activity.RESULT_CANCELED);
+                  ((MainActivity) getActivity()).onNewSessionResult(source, Activity.RESULT_CANCELED);
                 }
               });
 

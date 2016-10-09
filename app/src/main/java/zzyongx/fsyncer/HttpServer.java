@@ -3,24 +3,24 @@ package zzyongx.fsyncer;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Properties;
 import java.util.UUID;
-import android.util.Log;
 import fi.iki.elonen.NanoHTTPD;
 
 public class HttpServer extends NanoHTTPD {
-  static final String TAG = "HttpServer";
-  static final String MIME_JSON = "applicaion/json";
+  private static final String TAG = "HttpServer";
+  private static final String MIME_JSON = "applicaion/json";
 
-  static final String AUTH_TOKEN = "authorization";
-  UserTokenPool tokenPool;
-  Event event;
+  private static final String AUTH_TOKEN = "authorization";
+  private static final int TOKEN_EXPIRE = 86400;
 
-  public static class UserToken {
+  private UserTokenPool tokenPool;
+  private Event event;
+
+  static class UserToken {
     public String token;
     public long   expireAt;
     
-    public static UserToken fromString(String s) {
+    static UserToken fromString(String s) {
       long now = System.currentTimeMillis()/1000;
       
       String parts[] = s.split(":");
@@ -41,20 +41,20 @@ public class HttpServer extends NanoHTTPD {
     }
   }
 
-  public static class UserTokenPool extends HashMap<String, UserToken> {
-    public void add(UserToken u) {
+  static class UserTokenPool extends HashMap<String, UserToken> {
+    void add(UserToken u) {
       put(u.token, u);
     }
     
-    public UserToken getNew() {
+    UserToken getNew() {
       UserToken u = new UserToken();
       u.token = UUID.randomUUID().toString();
-      u.expireAt = System.currentTimeMillis()/1000 + 86400;
+      u.expireAt = System.currentTimeMillis()/1000 + TOKEN_EXPIRE;
       put(u.token, u);
       return u;
     }
 
-    public Collection<UserToken> getAll() {
+    Collection<UserToken> getAll() {
       return values();
     }
   }
@@ -62,7 +62,7 @@ public class HttpServer extends NanoHTTPD {
   public interface Event {
     UserTokenPool whenStart();
     void whenStop(UserTokenPool pool);
-    boolean onNewSession();
+    boolean onNewSession(String source);
   }
   
   public HttpServer(Event event, String ip, int port) throws IOException {
@@ -78,6 +78,10 @@ public class HttpServer extends NanoHTTPD {
     event.whenStop(tokenPool);
   }
 
+  public String prefetchToken() {
+    return tokenPool.getNew().token;
+  }
+
   Response.Status checkAuth(IHTTPSession session) {
     CookieHandler handler = session.getCookies();
     String token = handler.read(AUTH_TOKEN);
@@ -86,7 +90,9 @@ public class HttpServer extends NanoHTTPD {
       if (token != null && tokenPool.get(token) != null) return Response.Status.OK;
     }
 
-    if (!event.onNewSession()) {
+    String clientIp = session.getHeaders().get("http-client-ip");
+
+    if (!event.onNewSession(clientIp)) {
       return Response.Status.FORBIDDEN;
     }
     

@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Fsyncer</string>
     <string name="no_wifi_found">this app only work in wifi network, check it</string>
+    <string name="new_fsync_request">%s ask sync file?</string>
+    <string name="request_accept">Accept</string>
+    <string name="request_deny">Deny</string>
+    <string name="endpoint_label">PC连接</string>
+    <string name="qrcode_label">扫码连接</string>
 </resources>
