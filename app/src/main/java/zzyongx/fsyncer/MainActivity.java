@@ -59,15 +59,18 @@ import zzyongx.fsyncer.qr.QRCode;
 public class MainActivity extends AppCompatActivity
         implements HttpServer.Event {
 
-  private static final int QRCODE = 100;
+  private static final int QRCODE_REQ = 100;
+  private static final int IMAGE_VIDEO_DIR_REQ = 101;
+
   static final String TAG = MainActivity.class.getSimpleName();
   static final String LISTEN_PORT = "LISTEN_PORT";
-  static final String TOKEN_POOL = "tokenpool.txt";
+  static final String TOKEN_POOL_FILE = "tokenpool.txt";
+  static final String IMAGE_VIDEO_DIR_FILE = "imagevideodir.txt";
 
-  TextView endpointView;
+  TextView  endpointView;
   ImageView qrcodeView;
   Bitmap    qrcodeBitmap;
-  Button mixButton;
+  Button    mixButton;
 
   class SessionLock extends CountDownLatch {
     SessionLock() {
@@ -76,13 +79,14 @@ public class MainActivity extends AppCompatActivity
     }
     int rc;
   }
-
   Map<String, SessionLock> sessionLocks = new HashMap<>();
 
   HttpServer http;
   String ip;
   int port = -1;
   Handler handler = new Handler();
+
+  List<String> imageVideoDirs;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -123,6 +127,13 @@ public class MainActivity extends AppCompatActivity
     if (port > 0) {
       String endpoint = endpointView.getText().toString();
       resetQRImage(endpoint + "?" + http.prefetchToken());
+    }
+
+    imageVideoDirs = loadImageVideoDirs();
+    if (imageVideoDirs == null) {
+      startImageVideoQuestActivity();
+    } else if (imageVideoDirs.isEmpty()) {
+
     }
 
     List<String> types = new ArrayList<>();
@@ -176,7 +187,7 @@ public class MainActivity extends AppCompatActivity
 
   @Override
   protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-    if (requestCode == QRCODE) {
+    if (requestCode == QRCODE_REQ) {
       if (data == null) return;
 
       String code = data.getStringExtra(CaptureActivity.QRCODE);
@@ -189,12 +200,13 @@ public class MainActivity extends AppCompatActivity
   public HttpServer.UserTokenPool whenStart() {
     HttpServer.UserTokenPool pool = new HttpServer.UserTokenPool();
     try {
-      InputStream in = openFileInput(TOKEN_POOL);
+      InputStream in = openFileInput(TOKEN_POOL_FILE);
       try {
         BufferedReader reader = new BufferedReader(new InputStreamReader(in));
         String line;
         while ((line = reader.readLine()) != null) {
-          // pool.add(HttpServer.UserToken.fromString(line));
+          HttpServer.UserToken token = HttpServer.UserToken.fromString(line);
+          if (token != null) pool.add(HttpServer.UserToken.fromString(line));
         }
       } finally {
         in.close();
@@ -212,7 +224,7 @@ public class MainActivity extends AppCompatActivity
   public void whenStop(HttpServer.UserTokenPool pool) {
     try {
       byte[] lf = new byte[] {'\n'};
-      OutputStream out = openFileOutput(TOKEN_POOL, Context.MODE_PRIVATE);
+      OutputStream out = openFileOutput(TOKEN_POOL_FILE, Context.MODE_PRIVATE);
       try {
         for (HttpServer.UserToken u : pool.getAll()) {
           out.write(u.toString().getBytes());
@@ -257,7 +269,7 @@ public class MainActivity extends AppCompatActivity
     lock.countDown();
   }
 
-  void startWelcomeActivity() {
+  private void startWelcomeActivity() {
     PackageManager pm = getPackageManager();
     try {
       PackageInfo info = pm.getPackageInfo(getPackageName(), 0);
@@ -280,6 +292,35 @@ public class MainActivity extends AppCompatActivity
     } catch (PackageManager.NameNotFoundException e) {
       // do nothing
     }
+  }
+
+  private List<String> loadImageVideoDirs() {
+    try {
+      InputStream in = openFileInput(IMAGE_VIDEO_DIR_FILE);
+      try {
+        List<String> dirs = new ArrayList<>();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+        String line;
+        while ((line = reader.readLine()) != null) {
+          File file = new File(line);
+          if (file.exists() && file.isDirectory()) {
+            dirs.add(line);
+          }
+        }
+        return dirs;
+      } finally {
+        in.close();
+      }
+    } catch (FileNotFoundException e) {
+      return null;
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private void startImageVideoQuestActivity() {
+    Intent i = new Intent(this, ImageVideoQuestActivity.class);
+    startActivityForResult(i, IMAGE_VIDEO_DIR_REQ);
   }
 
   static final int LISTEN_PORTS[] = {9127, 7084, 6281, 9091, 8879};
@@ -379,7 +420,7 @@ public class MainActivity extends AppCompatActivity
 
   void scan() {
     Intent i = new Intent(this, CaptureActivity.class);
-    startActivityForResult(i, QRCODE);
+    startActivityForResult(i, QRCODE_REQ);
   }
 
   public static class NewSessionDialogFragment extends DialogFragment {
